@@ -821,39 +821,72 @@ async function load() {
   if (!state.r) state.r = [];
 }
 
-// ── INIT ──
-load().then(() => {
-  renderAll();
-  updateStats();
+// ── INIT — all startup logic in one place ──
+document.addEventListener('DOMContentLoaded', function() {
+
+  // 1. Load local state
+  load().then(function() {
+    renderAll();
+    updateStats();
+  });
+
+  // 2. Date/clock fields
+  var today = new Date();
+  try { document.getElementById('sel-date').valueAsDate = today; } catch(e){}
+
+  // 3. Live clock
+  function updateClock() {
+    var now = new Date();
+    var d = document.getElementById('live-clock');
+    if (d) d.textContent =
+      String(now.getHours()).padStart(2,'0') + ':' +
+      String(now.getMinutes()).padStart(2,'0') + ' · ' +
+      String(now.getDate()).padStart(2,'0') + '/' +
+      String(now.getMonth()+1).padStart(2,'0') + '/' +
+      now.getFullYear();
+  }
+  updateClock();
+  setInterval(updateClock, 30000);
+
+  // 4. Time field
+  var n2 = new Date();
+  try {
+    document.getElementById('sel-time').value =
+      String(n2.getHours()).padStart(2,'0') + ':' + String(n2.getMinutes()).padStart(2,'0');
+  } catch(e){}
+
+  // 5. Turn + OPP
+  var h0 = today.getHours();
+  var autoTurn = h0>=6&&h0<14?'m':h0>=14&&h0<22?'t':'n';
+  document.getElementById('sel-turn').value = autoTurn;
+  onTurnChange();
+
+  // 6. First tab
   switchTab('form');
+
+  // 7. Google Sheets auto-connect
+  var saved = gsGetUrl();
+  if (saved) {
+    document.getElementById('gs-url').value = saved;
+    testAndConnect(saved);
+  } else {
+    setOnline(false);
+    // Show setup modal after small delay so app is fully rendered
+    setTimeout(function() {
+      document.getElementById('modal-setup').classList.remove('hidden');
+    }, 800);
+  }
 });
 
-// Date
-const today = new Date();
-document.getElementById('sel-date').valueAsDate = today;
 
-// Clock
-function updateClock() {
-  const n = new Date();
-  document.getElementById('live-clock').textContent =
-    n.toLocaleTimeString('es-ES',{hour:'2-digit',minute:'2-digit',hour12:false}) + ' · ' +
-    n.toLocaleDateString('es-ES',{day:'2-digit',month:'2-digit',year:'numeric'});
-}
-updateClock(); setInterval(updateClock, 1000);
+// Date/clock/time/turn now initialized inside DOMContentLoaded above
 
-// Time field
-const h0 = today.getHours(), m0 = today.getMinutes();
-document.getElementById('sel-time').value = `${String(h0).padStart(2,'0')}:${String(m0).padStart(2,'0')}`;
-
-// Turn label/class maps — declared here so onTurnChange() can use them on init
-const turnLabels = { m:'☀️ MAÑANA', t:'🌤️ TARDE', n:'🌙 NOCHE' };
+// Turn label/class maps
+const turnLabels  = { m:'☀️ MAÑANA', t:'🌤️ TARDE', n:'🌙 NOCHE' };
 const turnClasses = { m:'cm', t:'ct', n:'cn' };
 
 // ── OPP PER-TURN STATE (persisted in localStorage, keyed by date+turn) ──
-// Key format: "OPP_<dd-mm-yyyy>_<turn>" → survives closing/reopening the app
-// within the SAME shift block. Changes automatically when entering a new
-// shift block (new turn) or a new day.
-const oppNames = { m: null, t: null, n: null };
+const oppNames     = { m: null, t: null, n: null };
 let _oppTargetTurn = null;
 let _oppCallback   = null;
 
@@ -861,9 +894,7 @@ function todayKey() {
   const d = new Date();
   return `${String(d.getDate()).padStart(2,'0')}-${String(d.getMonth()+1).padStart(2,'0')}-${d.getFullYear()}`;
 }
-function oppStorageKey(turn) {
-  return `OPP_${todayKey()}_${turn}`;
-}
+function oppStorageKey(turn) { return `OPP_${todayKey()}_${turn}`; }
 function loadOppFromStorage(turn) {
   try { return localStorage.getItem(oppStorageKey(turn)) || null; } catch(e) { return null; }
 }
@@ -873,13 +904,6 @@ function saveOppToStorage(turn, name) {
 
 // Hydrate in-memory oppNames from localStorage for all 3 turns (today only)
 ['m','t','n'].forEach(turn => { oppNames[turn] = loadOppFromStorage(turn); });
-
-// Auto-select shift
-const autoTurn = h0>=6&&h0<14?'m':h0>=14&&h0<22?'t':'n';
-document.getElementById('sel-turn').value = autoTurn;
-onTurnChange();
-
-// (renderAll, updateStats, switchTab now called inside load().then() above)
 
 // ── TABS ──
 function switchTab(t) {
@@ -2413,19 +2437,9 @@ window.openSetupModal = function() {
 };
 
 window.closeSetupModal = function() {
-  if (GS.url) document.getElementById('modal-setup').classList.add('hidden');
-};
-
-document.addEventListener('DOMContentLoaded', function() {
-  var saved = gsGetUrl();
-  if (saved) {
-    document.getElementById('gs-url').value = saved;
-    testAndConnect(saved);
-  } else {
-    setOnline(false);
-    document.getElementById('modal-setup').classList.remove('hidden');
-  }
-});</script>
+  // Always allow closing — the connect button handles validation
+  document.getElementById('modal-setup').classList.add('hidden');
+};</script>
 
 </body>
 </html>
