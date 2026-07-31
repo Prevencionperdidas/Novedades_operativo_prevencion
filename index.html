@@ -1315,12 +1315,22 @@ function clearRechFilters() {
   renderRechazos();
 }
 
+var _lastRechHash = '';
+
 function renderRechazos() {
   const all   = (state.r || []);
   const kpiEl = document.getElementById('rech-kpi');
   const el    = document.getElementById('list-rech');
   const statsEl = document.getElementById('rech-stats');
   if (!el) return;
+
+  // Skip re-render if data hasn't changed — prevents image flash from polling
+  var fCd     = (document.getElementById('rech-filter-cd')?.value    || '');
+  var fMotivo = (document.getElementById('rech-filter-motivo')?.value || '');
+  var fDateRaw = (document.getElementById('rech-filter-date')?.value  || '');
+  var renderHash = JSON.stringify({ ids: all.map(r=>r.id), fCd, fMotivo, fDateRaw });
+  if (renderHash === _lastRechHash && el.innerHTML !== '') return; // nothing changed
+  _lastRechHash = renderHash;
 
   // ── KPI CALCULATIONS (on full dataset, no filter) ──
   const total = all.length;
@@ -1411,21 +1421,21 @@ function renderRechazos() {
   }
 
   // ── FILTER ──
-  const fCd     = (document.getElementById('rech-filter-cd')?.value     || '').trim();
-  const fMotivo = (document.getElementById('rech-filter-motivo')?.value  || '').trim().toUpperCase();
-  const fDateRaw = document.getElementById('rech-filter-date')?.value    || '';
+  var fCd2     = (document.getElementById('rech-filter-cd')?.value     || '').trim();
+  var fMotivo2 = (document.getElementById('rech-filter-motivo')?.value  || '').trim().toUpperCase();
+  var fDateRaw2 = document.getElementById('rech-filter-date')?.value    || '';
 
   // Convert yyyy-mm-dd → dd/mm/yyyy for comparison
-  let fDate = '';
-  if (fDateRaw) {
-    const [y,m,d] = fDateRaw.split('-');
-    fDate = `${d}/${m}/${y}`;
+  var fDate2 = '';
+  if (fDateRaw2) {
+    var parts = fDateRaw2.split('-');
+    fDate2 = parts[2]+'/'+parts[1]+'/'+parts[0];
   }
 
   const items = all.filter(r => {
-    if (fCd     && String(r.cd||'').toUpperCase() !== fCd) return false;
-    if (fMotivo && !String(r.motivo||'').toUpperCase().includes(fMotivo)) return false;
-    if (fDate   && r.date !== fDate) return false;
+    if (fCd2     && String(r.cd||'').toUpperCase() !== fCd2) return false;
+    if (fMotivo2 && !String(r.motivo||'').toUpperCase().includes(fMotivo2)) return false;
+    if (fDate2   && r.date !== fDate2) return false;
     return true;
   });
 
@@ -1437,16 +1447,18 @@ function renderRechazos() {
   }
 
   el.innerHTML = items.map(r => {
-    const photos = r.photos && r.photos.length ? r.photos : (r.photo ? [r.photo] : []);
+    const photos = r.photos && r.photos.length ? r.photos : (r.photo && r.photo.startsWith('data:') ? [r.photo] : []);
     const photoHTML = photos.length
-      ? `<div style="display:grid;grid-template-columns:repeat(${Math.min(photos.length,4)},1fr);gap:6px;margin-top:8px">${
-          photos.map(function(p) {
-            return p.startsWith('data:')
-              ? `<img src="${p}" style="width:100%;height:70px;object-fit:cover;border-radius:8px;border:2px solid rgba(239,68,68,.3)">`
+      ? `<div style="display:grid;grid-template-columns:repeat(${Math.min(photos.length,3)},1fr);gap:6px;margin-top:8px">${
+          photos.map(function(p, pi) {
+            return p && p.startsWith('data:')
+              ? `<img loading="lazy" src="${p}" style="width:100%;height:70px;object-fit:cover;border-radius:8px;border:2px solid rgba(239,68,68,.3)">`
               : '';
-          }).join('')
+          }).filter(Boolean).join('')
         }</div>`
-      : (r.photo === '[foto]' ? `<div style="font-size:10px;color:var(--muted);margin-top:6px">📷 Foto en servidor</div>` : '');
+      : (r.photo && r.photo.indexOf('FOTO') > -1
+          ? `<div style="font-size:10px;color:var(--muted);margin-top:6px">📷 ${esc(r.photo)}</div>`
+          : '');
     return `<div class="icard rech-icard" id="rcard-${r.id}">
       <div class="isev alto"></div>
       <div style="flex:1;min-width:0">
@@ -1472,7 +1484,7 @@ function renderRechazos() {
 
   if (statsEl) {
     statsEl.innerHTML = `<div style="font-size:11px;color:var(--muted);padding:4px 0 8px">
-      Mostrando ${items.length} de ${total} rechazos${fCd||fMotivo||fDate?' (filtrados)':''}
+      Mostrando ${items.length} de ${total} rechazos${fCd2||fMotivo2||fDate2?' (filtrados)':''}
     </div>`;
   }
 }
@@ -1896,34 +1908,37 @@ function generateRechazoDoc(r) {
     y = 44;
     doc.setTextColor(20,20,30);
 
-    // ── Helper: clean string value ──
+    // ── Helper: clean string value (removes JS Date artifacts) ──
     function val(v) {
       var s = String(v || '').trim();
-      // Remove any JS Date string artifacts
-      if (s.indexOf('GMT') > -1 || s.indexOf('UTC') > -1 || s.length > 30) {
+      // Remove JS Date toString() artifacts — these contain weekday names and GMT offset
+      if (s.indexOf('GMT') > -1 || s.indexOf('UTC') > -1 ||
+          /^(Mon|Tue|Wed|Thu|Fri|Sat|Sun)\s/.test(s)) {
         return '—';
       }
       return s.toUpperCase() || '—';
     }
 
+    // ── Helper: clean short field value (max 25 chars for single-line fields) ──
+    function valShort(v) {
+      var s = val(v);
+      if (s.length > 25 && s !== '—') return s.substring(0, 25);
+      return s;
+    }
+
     // ── Helper: draw a labeled field box ──
     function fieldBox(label, value, x, y2, w) {
-      // Label
       doc.setFontSize(7);
       doc.setFont('helvetica','bold');
       doc.setTextColor(130,130,140);
       doc.text(label, x, y2);
-      // Value — truncate if too wide
       doc.setFontSize(11);
       doc.setFont('helvetica','bold');
       doc.setTextColor(0, 87, 173);
-      var txt = val(value);
-      // Clip text to column width
-      while (doc.getTextWidth(txt) > w - 2 && txt.length > 1) {
-        txt = txt.slice(0, -1);
-      }
+      var txt = valShort(value);
+      // Clip to column width
+      while (txt.length > 1 && doc.getTextWidth(txt) > w - 1) txt = txt.slice(0,-1);
       doc.text(txt, x, y2 + 6);
-      // Underline
       doc.setDrawColor(0, 87, 173);
       doc.setLineWidth(0.35);
       doc.line(x, y2 + 7.5, x + w, y2 + 7.5);
@@ -2338,10 +2353,28 @@ async function gsPoll() {
         n: state.n.length, r: (state.r||[]).length
       };
 
+      // Preserve local photos before merging (server strips them)
+      var localPhotosById = {};
+      (state.r||[]).forEach(function(r) {
+        if (r.id && (r.photos || r.photo)) {
+          localPhotosById[String(r.id)] = { photos: r.photos, photo: r.photo };
+        }
+      });
+
       state.m = mergeById((inc.m||[]).sort(function(a,b){return Number(b.id)-Number(a.id);}), state.m);
       state.t = mergeById((inc.t||[]).sort(function(a,b){return Number(b.id)-Number(a.id);}), state.t);
       state.n = mergeById((inc.n||[]).sort(function(a,b){return Number(b.id)-Number(a.id);}), state.n);
-      state.r = mergeById((res.rechazos||[]).sort(function(a,b){return Number(b.id)-Number(a.id);}), state.r||[]);
+
+      var serverRechazos = (res.rechazos||[]).sort(function(a,b){return Number(b.id)-Number(a.id);});
+      // Restore photos from local cache after merge
+      serverRechazos.forEach(function(r) {
+        var local = localPhotosById[String(r.id)];
+        if (local) {
+          if (local.photos && local.photos.length) r.photos = local.photos;
+          if (local.photo && local.photo.startsWith('data:')) r.photo = local.photo;
+        }
+      });
+      state.r = mergeById(serverRechazos, state.r||[]);
 
       renderAll();
       updateStats();
