@@ -1896,111 +1896,144 @@ function generateRechazoDoc(r) {
     y = 44;
     doc.setTextColor(20,20,30);
 
-    function field(label, value, x, w) {
-      doc.setFontSize(7.5);
-      doc.setFont('helvetica','bold');
-      doc.setTextColor(120,120,130);
-      doc.text(label.toUpperCase(), x, y);
-      doc.setFontSize(12);
-      doc.setFont('helvetica','bold');
-      doc.setTextColor(0,87,173);
-      doc.text(String(value || '—').toUpperCase(), x, y + 6);
-      doc.setDrawColor(0,87,173);
-      doc.setLineWidth(0.4);
-      doc.line(x, y + 7.5, x + w, y + 7.5);
+    // ── Helper: clean string value ──
+    function val(v) {
+      var s = String(v || '').trim();
+      // Remove any JS Date string artifacts
+      if (s.indexOf('GMT') > -1 || s.indexOf('UTC') > -1 || s.length > 30) {
+        return '—';
+      }
+      return s.toUpperCase() || '—';
     }
 
-    var colW = (pageW - 28 - 16) / 3;
-    field('FECHA Y HORA', r.date + '  ' + r.time, 14, colW);
-    field('OPP TURNO', r.opp, 14 + colW + 8, colW);
-    field('CD', r.cd, 14 + (colW+8)*2, colW);
+    // ── Helper: draw a labeled field box ──
+    function fieldBox(label, value, x, y2, w) {
+      // Label
+      doc.setFontSize(7);
+      doc.setFont('helvetica','bold');
+      doc.setTextColor(130,130,140);
+      doc.text(label, x, y2);
+      // Value — truncate if too wide
+      doc.setFontSize(11);
+      doc.setFont('helvetica','bold');
+      doc.setTextColor(0, 87, 173);
+      var txt = val(value);
+      // Clip text to column width
+      while (doc.getTextWidth(txt) > w - 2 && txt.length > 1) {
+        txt = txt.slice(0, -1);
+      }
+      doc.text(txt, x, y2 + 6);
+      // Underline
+      doc.setDrawColor(0, 87, 173);
+      doc.setLineWidth(0.35);
+      doc.line(x, y2 + 7.5, x + w, y2 + 7.5);
+    }
 
-    y += 18;
-    var colW2 = (pageW - 28 - 8) / 2;
-    field('N° CONTENEDOR', r.contenedor, 14, colW2);
-    field('N° ANDÉN', r.anden, 14 + colW2 + 8, colW2);
+    // ── ROW 1: FECHA Y HORA (full width) ──
+    var margin = 14;
+    var contentW = pageW - margin * 2;
 
+    // Clean date and time values
+    var dateVal = val(r.date);
+    var timeVal = val(r.time);
+    // If date looks like a JS Date toString, extract dd/mm/yyyy
+    if (r.date && String(r.date).indexOf('/') > -1) {
+      dateVal = String(r.date).substring(0,10);
+    }
+    if (r.time && String(r.time).length > 5) {
+      timeVal = String(r.time).substring(0,5);
+    }
+
+    fieldBox('FECHA DEL RECHAZO', dateVal, margin, y, contentW / 2 - 4);
+    fieldBox('HORA DEL RECHAZO',  timeVal, margin + contentW / 2 + 4, y, contentW / 2 - 4);
+    y += 16;
+
+    // ── ROW 2: OPP TURNO (full width) ──
+    fieldBox('OPP TURNO', r.opp, margin, y, contentW);
+    y += 16;
+
+    // ── ROW 3: CONTENEDOR + ANDÉN + CD ──
+    var c3 = (contentW - 12) / 3;
+    fieldBox('N° CONTENEDOR', r.contenedor, margin,          y, c3);
+    fieldBox('N° ANDÉN',      r.anden,      margin + c3 + 6, y, c3);
+    fieldBox('CD',            r.cd,         margin + (c3+6)*2, y, c3);
     y += 18;
-    // Motivo box
+
+    // ── MOTIVO BOX ──
     doc.setFillColor(255, 243, 243);
     doc.setDrawColor(239, 68, 68);
     doc.setLineWidth(0.5);
-    var motivoLines = doc.splitTextToSize(String(r.motivo).toUpperCase(), pageW - 28 - 10);
-    var boxH = 10 + motivoLines.length * 5.5;
-    doc.roundedRect(14, y, pageW - 28, boxH, 2, 2, 'FD');
-    doc.setFontSize(7.5);
+    var motivoTxt = val(r.motivo);
+    var motivoLines = doc.splitTextToSize(motivoTxt, contentW - 10);
+    var boxH = 8 + motivoLines.length * 6;
+    doc.roundedRect(margin, y, contentW, boxH, 2, 2, 'FD');
+    doc.setFontSize(7);
     doc.setFont('helvetica','bold');
-    doc.setTextColor(120,120,130);
-    doc.text('MOTIVO DEL RECHAZO', 19, y + 6);
+    doc.setTextColor(130,130,140);
+    doc.text('MOTIVO DEL RECHAZO', margin + 5, y + 5.5);
     doc.setFontSize(11);
+    doc.setFont('helvetica','bold');
     doc.setTextColor(185, 28, 28);
-    doc.text(motivoLines, 19, y + 12.5);
+    doc.text(motivoLines, margin + 5, y + 12);
     y += boxH + 8;
 
-    // Observaciones box
-    if (r.obs) {
+    // ── OBSERVACIONES BOX ──
+    if (r.obs && String(r.obs).trim()) {
       doc.setFillColor(240, 247, 255);
       doc.setDrawColor(0, 87, 173);
-      var obsLines = doc.splitTextToSize(String(r.obs).toUpperCase(), pageW - 28 - 10);
-      var obsH = 10 + obsLines.length * 5;
-      doc.roundedRect(14, y, pageW - 28, obsH, 2, 2, 'FD');
-      doc.setFontSize(7.5);
+      doc.setLineWidth(0.5);
+      var obsTxt = val(r.obs);
+      var obsLines = doc.splitTextToSize(obsTxt, contentW - 10);
+      var obsH = 8 + obsLines.length * 5.5;
+      doc.roundedRect(margin, y, contentW, obsH, 2, 2, 'FD');
+      doc.setFontSize(7);
       doc.setFont('helvetica','bold');
-      doc.setTextColor(120,120,130);
-      doc.text('OBSERVACIONES', 19, y + 6);
+      doc.setTextColor(130,130,140);
+      doc.text('OBSERVACIONES', margin + 5, y + 5.5);
       doc.setFontSize(10);
       doc.setFont('helvetica','normal');
       doc.setTextColor(30,30,40);
-      doc.text(obsLines, 19, y + 12);
+      doc.text(obsLines, margin + 5, y + 12);
       y += obsH + 8;
     }
 
     // Photos (multiple) — 2 per row, new page if needed
     var photoList = (r.photos && r.photos.length) ? r.photos : (r.photo && r.photo.indexOf('data:image')===0 ? [r.photo] : []);
     if (photoList.length) {
-      doc.setFontSize(7.5);
+      doc.setFontSize(7);
       doc.setFont('helvetica','bold');
-      doc.setTextColor(120,120,130);
-      doc.text('REGISTRO FOTOGRÁFICO (' + photoList.length + ')', 14, y);
+      doc.setTextColor(130,130,140);
+      doc.text('REGISTRO FOTOGRÁFICO (' + photoList.length + ')', margin, y);
       y += 4;
 
       var pageH = doc.internal.pageSize.getHeight();
       var gap = 4;
-      var imgW = (pageW - 28 - gap) / 2;
-      var imgH = 65;
+      var imgW = (pageW - margin*2 - gap) / 2;
+      var imgH = 70;
 
       photoList.forEach(function(photo, idx) {
         var col = idx % 2;
-        var x = 14 + col * (imgW + gap);
-
-        // New page if doesn't fit
-        if (y + imgH > pageH - 20) {
-          doc.addPage();
-          y = 18;
-        }
-
+        var x = margin + col * (imgW + gap);
+        if (y + imgH > pageH - 20) { doc.addPage(); y = 18; }
         try {
           doc.setDrawColor(200,200,200);
           doc.rect(x, y, imgW, imgH);
           doc.addImage(photo, 'JPEG', x, y, imgW, imgH, undefined, 'MEDIUM');
-        } catch(imgErr) {
-          console.error('addImage error:', imgErr);
-        }
-
-        if (col === 1) y += imgH + gap; // move to next row after right column
+        } catch(imgErr) { console.error('addImage error:', imgErr); }
+        if (col === 1) y += imgH + gap;
       });
-      if (photoList.length % 2 === 1) y += imgH + gap; // account for last odd row
+      if (photoList.length % 2 === 1) y += imgH + gap;
       y += 4;
     }
 
     // Footer
-    var pageH = doc.internal.pageSize.getHeight();
+    var pageHF = doc.internal.pageSize.getHeight();
     doc.setDrawColor(220,220,220);
-    doc.line(14, pageH - 16, pageW - 14, pageH - 16);
+    doc.line(margin, pageHF - 16, pageW - margin, pageHF - 16);
     doc.setFontSize(8);
     doc.setFont('helvetica','normal');
     doc.setTextColor(150,150,160);
-    doc.text('GENERADO AUTOMÁTICAMENTE · SISTEMA DE REGISTRO PPS · IKEA WAREHOUSE', pageW/2, pageH - 10, { align: 'center' });
+    doc.text('GENERADO AUTOMÁTICAMENTE · SISTEMA DE REGISTRO PPS · IKEA WAREHOUSE', pageW/2, pageHF - 10, { align: 'center' });
 
     return doc;
   } catch(e) {
